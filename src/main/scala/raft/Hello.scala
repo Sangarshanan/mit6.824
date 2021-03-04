@@ -1,5 +1,5 @@
-// package raft
+package raft
 
-// object Main extends App {
-//   println("Hello, world")
-// }
+object Main extends App {
+  println("Hello, world")
+}
