@@ -1,5 +1,9 @@
 ## Google File System
 
+FAQ: http://nil.csail.mit.edu/6.824/2021/papers/gfs-faq.txt
+
+Lecture: https://www.youtube.com/watch?v=EpIgvowZr00
+
 GFS is scalable distributed file system developed at google for large distributed data-intensive applications. [This paper](http://nil.csail.mit.edu/6.824/2020/papers/gfs.pdf) discusses some really cool aspects of the design
 
 The paper starts by laying out some assumptions which are the core to the design and is said to reflect a marked departure from some earlier file system design assumptions.

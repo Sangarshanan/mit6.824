@@ -4,6 +4,7 @@ package mapreduce
 
 import java.io._
 import org.json4s._
+import sys.process._
 import org.json4s.native.Serialization
 import org.json4s.native.Serialization.{read, write}
 
@@ -18,6 +19,8 @@ object Utils {
 class MapReduce(M: Int, R: Int) {
 
   def execute(filename: String): Unit = {
+    s"split -d -n 3 -a 4 $filename mapping" !
+
     implicit val formats = Serialization.formats(NoTypeHints)
     val map = scala.io.Source.fromFile("src/main/scala/mapreduce/input")
     .getLines
