@@ -6,8 +6,8 @@ import java.io._
 import org.json4s._
 import sys.process._
 import scala.language.postfixOps
+import org.json4s.native.Serialization._
 import org.json4s.native.Serialization
-import org.json4s.native.Serialization.{read, write}
 
 /*
 Steps
@@ -33,49 +33,58 @@ object Utils {
 
 class MapReduce(M: Int, R: Int) {
 
+  implicit val formats = Serialization.formats(NoTypeHints)
+
+  // MAPPER + SHUFFLER
+  def mapper(filename: String) = {
+    // Read Input files and Find word count using `Map`
+    // Hash the key and write it to a Shuffler so that same
+    // keys are in the same file
+    val map = scala.io.Source.fromFile(filename)
+    .getLines
+    .flatMap(_.split("\\W+"))
+    .toList
+    .groupBy(identity)
+    .view
+    .mapValues(_.length)
+    .toMap
+    for((key,value) <- map){
+      var key_hash = math.abs(key.hashCode() % R)
+      var filename = s"/tmp/mapper_$key_hash"
+      var json = s""""$key":$value:"""
+      Utils.to_file(json, filename, true)
+    }
+  }
+
+  def reducer(filename: String) = {
+    // Read map file and group by key
+    val reduce_chars = scala.io.Source.fromFile(filename)
+    .getLines
+    .flatMap(_.split(":"))
+    .toList
+    val reduce_grouped  = reduce_chars
+    .grouped(2)
+    .collect { case List(a, b) => a -> b }
+    .toList
+    val reduce_map = reduce_grouped
+    .groupBy(_._1).view
+    .mapValues(_.map(_._2).map(_.toInt).sum)
+    .toMap
+    Utils.to_file(write(reduce_map), "src/main/scala/mapreduce/reduce.json", false)
+  }
+
   def execute(filename: String): Unit = {
     // Splits the Input File in M parts.
     s"split -d -n $M -a 1 $filename /tmp/input" !
 
-    // Read Input files and Find word count using `Map`
-    // Hash the key and write it to a Shuffler so that same
-    // keys are in the same file
     for (f_num <- 0 to M-1) {
-      // MAPPER + SHUFFLER
-      implicit val formats = Serialization.formats(NoTypeHints)
-      val map = scala.io.Source.fromFile(s"/tmp/input$f_num")
-      .getLines
-      .flatMap(_.split("\\W+"))
-      .toList
-      .groupBy(identity)
-      .view
-      .mapValues(_.length)
-      .toMap
-      for((key,value) <- map){
-        var key_hash = math.abs(key.hashCode() % R)
-        var filename = s"/tmp/mapper_$key_hash"
-        var json = s""""$key":$value:"""
-        Utils.to_file(json, filename, true)
-      }
+      // MAPPER (read from input files)
+      mapper(s"/tmp/input$f_num")
     }
 
-    // Reduce Step read map files and group by key
     for (m_num <- 0 to R-1) {
-      // REDUCER
-      val reduce_chars = scala.io.Source.fromFile(s"/tmp/mapper_$m_num")
-      .getLines
-      .flatMap(_.split(":"))
-      .toList
-      val reduce_grouped  = reduce_chars
-      .grouped(2)
-      .collect { case List(a, b) => a -> b }
-      .toList
-      val reduce_counts = reduce_grouped
-      .groupBy(_._1).view
-      .mapValues(_.map(_._2).map(_.toInt).sum)
-      .toList
-      .mkString
-      Utils.to_file(reduce_counts, "reduce", true)
+      // REDUCER (read from mapper files)
+      reducer(s"/tmp/mapper_$m_num")
     }
   }
 }
