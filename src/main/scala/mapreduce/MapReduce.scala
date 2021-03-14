@@ -1,13 +1,23 @@
-// A simple mapreduce implementation
+// A simple parallel Mapreduce implementation using Scala Futures
 
 package mapreduce
 
 import java.io._
-import org.json4s._
 import sys.process._
+
 import scala.language.postfixOps
+import scala.collection.mutable.ListBuffer
+
+import org.json4s._
 import org.json4s.native.Serialization._
 import org.json4s.native.Serialization
+
+import scala.concurrent._
+import scala.concurrent.Future
+import scala.concurrent.duration._
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.util.{Failure, Success}
+
 
 /*
 Steps
@@ -40,6 +50,7 @@ class MapReduce(M: Int, R: Int) {
     // Read Input files and Find word count using `Map`
     // Hash the key and write it to a Shuffler so that same
     // keys are in the same file
+    println(s"Started mapper for $filename ...")
     val map = scala.io.Source.fromFile(filename)
     .getLines
     .flatMap(_.split("\\W+"))
@@ -54,10 +65,12 @@ class MapReduce(M: Int, R: Int) {
       var json = s""""$key":$value:"""
       Utils.to_file(json, filename, true)
     }
+    println(s"Completed mapper for $filename ...")
   }
 
   def reducer(filename: String) = {
     // Read map file and group by key
+    println(s"Started Reducer for $filename")
     val reduce_chars = scala.io.Source.fromFile(filename)
     .getLines
     .flatMap(_.split(":"))
@@ -71,20 +84,42 @@ class MapReduce(M: Int, R: Int) {
     .mapValues(_.map(_._2).map(_.toInt).sum)
     .toMap
     Utils.to_file(write(reduce_map), "src/main/scala/mapreduce/reduce.json", false)
+    println(s"Completed Reducer for $filename")
   }
 
   def execute(filename: String): Unit = {
     // Splits the Input File in M parts.
     s"split -d -n $M -a 1 $filename /tmp/input" !
 
+    val map_tasks = new ListBuffer[scala.concurrent.Future[Unit]]()
+    val reduce_tasks = new ListBuffer[scala.concurrent.Future[Unit]]()
+
     for (f_num <- 0 to M-1) {
       // MAPPER (read from input files)
-      mapper(s"/tmp/input$f_num")
+      val map_future = Future { mapper(s"/tmp/input$f_num") }
+      map_tasks += map_future
     }
 
+    val all_map_tasks = Future.sequence(map_tasks)
+    // Parallel Mappers
+    all_map_tasks.onComplete {
+      case Success(x) => println("Completed Map Tasks...")
+      case Failure(e) => e.printStackTrace
+    }
+
+    // Waits till mappers are Done (maybe don't wait for infinity dumbass)
+    Await.ready(all_map_tasks, Duration.Inf)
+
+    // Parallel Reducers ()
     for (m_num <- 0 to R-1) {
       // REDUCER (read from mapper files)
-      reducer(s"/tmp/mapper_$m_num")
+      val reduce_future = Future { reducer(s"/tmp/mapper_$m_num") }
+      reduce_tasks += reduce_future
+    }
+    val all_reduce_tasks = Future.sequence(reduce_tasks)
+    all_reduce_tasks.onComplete {
+      case Success(x) => println("Completed Reduce Tasks...")
+      case Failure(e) => e.printStackTrace
     }
   }
 }
