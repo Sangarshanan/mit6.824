@@ -1,12 +1,14 @@
 ## Raft
 
-http://nil.csail.mit.edu/6.824/2020/papers/raft-extended.pdf
+Material
 
-FAQ: http://nil.csail.mit.edu/6.824/2020/papers/raft-faq.txt
+- Paper: http://nil.csail.mit.edu/6.824/2020/papers/raft-extended.pdf
+- FAQ: http://nil.csail.mit.edu/6.824/2020/papers/raft-faq.txt & http://nil.csail.mit.edu/6.824/2020/papers/raft2-faq.txt
+- Visual Aid: http://thesecretlivesofdata.com/raft/
+- Site: https://raft.github.io/
+- Videos: https://www.youtube.com/watch?v=64Zp3tzNbpE & https://www.youtube.com/watch?v=4r8Mz3MMivY
+- RC notes: https://docs.google.com/document/d/1ElFUjssB2sp6vlzoakO9QQEbev_Bl2_XfmrM_uK2WHI
 
-Visual Aid: http://thesecretlivesofdata.com/raft/
-
-Site: https://raft.github.io/
 
 So far with systems like GFS we had one master and it handled operations across distributed systems but as more complicates systems rose having one master became the bottleneck and even when we have multiple masters we need a **good consensus algorithm that allows a collection of machines to work as a coherent group that can survive the failures of some of its members.**
 
@@ -32,6 +34,8 @@ receives commands from clients and adds them to its log and also ensures that ev
 - They are fully functional as long as any majority of the servers are operational and can communicate with each other and with clients (eg: 3 out of 5)
 - Independent of timing for consistency so as to tolerate faulty clocks and extreme message
 delays.
+
+**In a RAFT system of 2K+1 machines we can tolerate K failures eg: 3 machines we can tolerate 1 failure**
 
 ### The Algorithm
 
@@ -79,7 +83,7 @@ up through the given index.
 
 - All our nodes start in the follower state
 - If followers don't hear the periodic
-heartbeats i.e AppendEntries RPCs that carry no log entries from a leader then the follower assumed no leader exists and can become a candidate (Election timeout)
+heartbeats i.e `AppendEntries` RPCs that carry no log entries from a leader then the follower assumed no leader exists and can become a candidate (Election timeout)
 - The candidate then requests votes from other nodes in parallel using the RequestVote RPCs
 
 Now based on the votes 3 things can happen
@@ -88,8 +92,7 @@ Now based on the votes 3 things can happen
 a majority of the servers and on winning sends heartbeat messages to all of
 the other servers to establish its authority and prevent new elections.
 
-**Another Server Claims** leadership when the candidate receives an heartbeat RPC from the so called "leader" now it checks if the leader’s term (counter) is at least
-as large as the candidate’s current term and if it is then it recognizes the leader and goes back to follower else it rejects the RPC and continues the election.
+**Another Server Claims** leadership when the candidate receives an heartbeat RPC from the so called "leader" now it checks if the leader’s term (counter) is at least as large as the candidate’s current term and if it is then it recognizes the leader and goes back to follower else it rejects the RPC and continues the election.
 
 **No Winner** happens incases of Split votes and no majorities, when a lot of followers become candidates at the same time. When this happens, each candidate will time out and start a new election by incrementing its term and initiating another round of Request-
 Vote RPCs. However, without extra measures split votes could repeat indefinitely
@@ -98,14 +101,47 @@ Raft uses **randomized election timeouts** to ensure that split votes are rare a
 
 This election term will continue until a follower stops receiving heartbeats and becomes a candidate.
 
+Suppose the randomized election timeouts lie between `Tmin` and `Tmax` then Tmin must be atleast double of heartbeat team cause we don't want hella elections to be happening even before a heartbeats go out. Tmax is the max time we can afford our system to be down cause when a leader is down and the next election hasn't happened the whole system is frozen so Tmax or the max value of the randomized election timeout cannot be too high, depends on how often failures happen and how available we want the system to be. It also cannot be too low cause between on a random election timeout servers need time to cast votes and elect a leader before the next timeout.
+
+
 ### Log Replication
 
 Once a leader has been elected, it begins servicing client requests. Each client request contains a command to be executed by the replicated state machines.
 
-The leader appends the command to its log as a new entry, then issues AppendEntries RPCs in parallel to each of the other servers to replicate the entry. When the entry has been safely replicated the leader applies the entry to its state machine and returns the result of that execution to the client. If followers crash or run slowly or if network packets are lost, the leader retries AppendEntries RPCs indefinitely even after it has responded to the client until all followers eventually store consistent log entries.
+The leader appends the command to its log as a new entry, then issues `AppendEntries` RPCs in parallel to each of the other servers to replicate the entry. When the entry has been safely replicated the leader applies the entry to its state machine and returns the result of that execution to the client. If followers crash or run slowly or if network packets are lost, the leader retries `AppendEntries` RPCs indefinitely even after it has responded to the client until all followers eventually store consistent log entries.
+
+The leader decides when it is safe to apply a log entry to the state machines; such an entry is called committed. Raft guarantees that committed entries are durable and will eventually be executed by all of the available state machines. The leader keeps track of the highest index it knows to be committed, and it includes that index in future `AppendEntries` RPCs (including heartbeats) so that the other servers eventually find out.
+
+Raft maintains the following properties to maintain coherency between the logs on different servers.
+
+- If two entries in different logs have the same index and term, then they store the same command
+- If two entries in different logs have the same index and term, then the logs are identical in all preceding entries
+
+This **consistency check acts as an induction step:** the initial empty state of the logs satisfies the Log Matching Property, and the consistency check preserves this property whenever logs are extended. As a result, whenever `AppendEntries` returns successfully, the leader knows that the follower’s log is identical to its own log up through the new entries.
+
+In Raft, the leader handles inconsistencies by forcing the followers logs to duplicate its own. This means that
+conflicting entries in follower logs will be overwritten with entries from the leaders log.
+
+The leader maintains a `nextIndex` for each follower, which is the index of the next log entry the leader will send to that follower. When a leader first comes to power it initializes all `nextIndex` values to the index just after the last one in its log.If a follower’s log is inconsistent with the leaders the `AppendEntries` consistency check will fail. After a rejection, the leader decrements `nextIndex` and retries `AppendEntries` RPC. Eventually `nextIndex` will reach a point where the leader and follower logs match. When this happens, `AppendEntries` will succeed, which removes conflicting entries in the followers log and appends entries from the leaders log. Once `AppendEntries` succeeds, the follower’s log is consistent with the leaders for the rest of the term.
+
+Once AppendEntries succeeds, the follower’s log is consistent with the leader’s, and it will remain that way for the rest of the term.
+
+### Safety
+
+**Ensures that the state machine executes exactly the same commands in the same order.**
+
+This rule might be broken if a follower might goes down while the leader commits several log entries, then it could be elected leader and overwrite these entries with new ones, as a result different state machines might execute different command sequences. This can be avoided with a simple rule called **Leader Completeness** which ensures that the leader for any given term con-
+tains all of the entries committed in previous terms
+
+**The leader for any given term contains all of the entries committed in previous terms**
+
+Raft guarantees that all the committed entries from previous terms are present on each new leader from the moment of its election, without the need to transfer those entries to the leader. This means that log entries only flow in one direction, from leaders to followers, and leaders never overwrite existing entries in their logs.
+
+Raft prevent a candidate from winning an election unless its log contains all committed entries. The Candidates log has to be atleast as **up-to-date** with any other log in the majority **where up-to-date:** If the logs have last entries with different terms, then the log with the later term is more **up-to-date**. If the logs end with the same term, then whichever log is longer is more **up-to-date**.
 
 
 
+### End notes
 
-
+RAFT can fail when a leader can send out outgoing requests i.e heartbeats but cannot accept incoming requests i.e from the client. In these case even tho leader fails to serve the client the followers get the heartbeat and assume everting is ok. A way to solve this is to also send a response from the follower to the leader heartbeat which needs to be acknowledged, this way we can catch situations where leader doesn't respond to incoming requests and re-trigger an election.
 
