@@ -69,7 +69,7 @@ number, it rejects the request.
 Raft servers communicate using remote procedure calls (RPCs) and the basic consensus algorithm requires only
 two types of RPCs. RequestVote RPCs are initiated by candidates during elections and Append Entries RPCs are initiated by leaders to replicate log entries and to provide a form of heartbeat
 
-### Raft Guarantees
+### Raft Guarantees / Commandments
 
 - **Election Safety:** at most one leader can be elected in a given term.
 - **Leader Append-Only:** a leader never overwrites or deletes entries in its log; it only appends new entries
@@ -99,10 +99,7 @@ Vote RPCs. However, without extra measures split votes could repeat indefinitely
 
 Raft uses **randomized election timeouts** to ensure that split votes are rare and that they are resolved quickly
 
-This election term will continue until a follower stops receiving heartbeats and becomes a candidate.
-
-Suppose the randomized election timeouts lie between `Tmin` and `Tmax` then Tmin must be atleast double of heartbeat team cause we don't want hella elections to be happening even before a heartbeats go out. Tmax is the max time we can afford our system to be down cause when a leader is down and the next election hasn't happened the whole system is frozen so Tmax or the max value of the randomized election timeout cannot be too high, depends on how often failures happen and how available we want the system to be. It also cannot be too low cause between on a random election timeout servers need time to cast votes and elect a leader before the next timeout.
-
+An election term will continue until a follower stops receiving heartbeats and becomes a candidate.
 
 ### Log Replication
 
@@ -130,8 +127,17 @@ Once AppendEntries succeeds, the follower’s log is consistent with the leader�
 
 **Ensures that the state machine executes exactly the same commands in the same order.**
 
-This rule might be broken if a follower might goes down while the leader commits several log entries, then it could be elected leader and overwrite these entries with new ones, as a result different state machines might execute different command sequences. This can be avoided with a simple rule called **Leader Completeness** which ensures that the leader for any given term con-
-tains all of the entries committed in previous terms
+This rule might be broken if a follower might goes down while the leader commits several log entries, then it could be elected leader and overwrite these entries with new ones, as a result different state machines might execute different command sequences.
+
+So now do we ensure safety when a leader or one of the followers crashes ?
+
+### Leader Crashes
+
+Raft handles inconsistencies by forcing the followers log to duplicate the leaders, meaning that conflicting entries in a followers log can be overwritten by the entries in the leaders log. To make the logs between a leader and follower consistent, the leader first finds the latest index at which their logs are identical, deletes all the entries in the followers log after that index, and then sends the follower the entries in its own log that come after that point.
+
+**When can a new leader to overwrite its followers logs?**
+
+This can be avoided with a simple rule called **Leader Completeness** which ensures that the leader for any given term contains all of the entries committed in previous terms
 
 **The leader for any given term contains all of the entries committed in previous terms**
 
@@ -139,9 +145,41 @@ Raft guarantees that all the committed entries from previous terms are present o
 
 Raft prevent a candidate from winning an election unless its log contains all committed entries. The Candidates log has to be atleast as **up-to-date** with any other log in the majority **where up-to-date:** If the logs have last entries with different terms, then the log with the later term is more **up-to-date**. If the logs end with the same term, then whichever log is longer is more **up-to-date**.
 
+By this restriction, it is safe for a leader to overwrite a followers log since the leader will always have the latest committed entries. Any uncommitted entries can be safely discarded because there is no expectation on the clients side that their request has been executed. Only committed entries guarantee that. Therefore, the server can return an error message to the client, telling it to retry the requests for the uncommitted entries.
 
+- Client sends a Request to execute `SET a 10`
+- Leader appends it to the logs and sends it to all followers which also append it to their logs
+- Before the leader can send out the RPC to execute the logs it crashes
+- The client gets an error message :(
+- Now when the new leader comes up it sees the log `SET a 10` in the majority of the servers
+- **Raft never commits log entries from previous terms by counting replicas** it is only done for the leaders current term
+- So the `SET a 10` log is discarded even tho its on majority on servers
 
-### End notes
+There are some situations where a leader could safely conclude that an older log entry is committed (for example, if that entry is stored on every server), but Raft takes a more conservative approach for simplicity.
+
+### Follower Crashes
+
+If a follower crashes then future RPCs sent to it will fail. Raft handles these failures by retrying indefinitely if the crashed server restarts then the RPC will complete successfully and since Raft RPCs are idempotent this causes no harm i.e if a follower receives an AppendEntries request that includes log entries already present in its log, it ignores those entries in the new request.
+
+### Timing and availability
+
+**broadcastTime ≪ electionTimeout ≪ MTBF**
+
+- broadcastTime is the average time it takes a server to send RPCs in parallel to every server in the cluster and receive their responses;
+- electionTimeout is the randomized election timer in follower that makes it a candidate and triggers an election
+- MTBF (mean time between failures) is the average time between failures for a single server.
+
+Since broadcast time may range from 0.5ms to 20ms, depending on storage technology, The election timeout is likely to be somewhere between 10ms and 500ms.
+
+Suppose the randomized election timeouts lie between `Tmin` and `Tmax` then Tmin must be atleast double of heartbeat team cause we don't want hella elections to be happening even before a heartbeats go out. Tmax is the max time we can afford our system to be down cause when a leader is down and the next election hasn't happened the whole system is frozen so Tmax or the max value of the randomized election timeout cannot be too high, depends on how often failures happen and how available we want the system to be. It also cannot be too low cause between on a random election timeout servers need time to cast votes and elect a leader before the next timeout.
+
+### Log compaction
+
+To prevent the log from growing indefinitely, which can increase the time it takes for the state machine to replay a log when it restarts, Raft uses snapshotting for log compaction. A snapshot of the current application's state is written to durable storage, and all the log entries up to the point of the snapshot are deleted from the log. Each server takes its snapshots independently, and snapshots are taken when the log reaches a fixed size in bytes.
+
+A snapshot also contains metadata such as the last included index, which is the index of the last entry in the log being replaced by the snapshot, and the last included term. These metadata are kept because of the AppendEntries consistency check for the first log entry after the snapshot, which needs a previous log entry and term.
+
+### Questions
 
 RAFT can fail when a leader can send out outgoing requests i.e heartbeats but cannot accept incoming requests i.e from the client. In these case even tho leader fails to serve the client the followers get the heartbeat and assume everting is ok. A way to solve this is to also send a response from the follower to the leader heartbeat which needs to be acknowledged, this way we can catch situations where leader doesn't respond to incoming requests and re-trigger an election.
 
