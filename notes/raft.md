@@ -123,6 +123,33 @@ The leader maintains a `nextIndex` for each follower, which is the index of the 
 
 Once AppendEntries succeeds, the follower’s log is consistent with the leader’s, and it will remain that way for the rest of the term.
 
+Along with logs we also need to persist
+
+- **Current Term** Servers can crash and come up at any time and if you look the case in the next section S2 should have a persistent record of Current term so that it can initialize to term 8 otherwise there finna be chaos 
+- **VotedFor** A Server votes then crashes and comes up again in the same term to vote again which means two votes for the same term ? Nahh can't happen which is is why VotedFor should also be Persistent so that crashed server knows its already voted for that term
+
+### Election Restriction
+
+How would a server cast its vote during an election, can we just choose the server with the longest log ?
+
+```
+S1 5 6 7 
+S2 5 8
+S3 5 8
+```
+- S1 gets elected as leader for term 6 after receiving majority votes, receives a client request and crashes before sending out the append entries
+- S1 comes back up gets elected for term 7 and does the same thing where it gets an entry appends to its log and before sending it out to other servers crashes again
+- Now S2 gets elected for term 8 (Even tho S1 went down before going down won the election by soliciting votes from majority of servers by sending its election term number(7) hence majority servers know that the next term is 8)
+- If S2 goes down and another election happens even tho S1 has more logs its redundant and hence must be re-written
+
+Here are the Election Restrictions:
+**As F Vote Yes to server S soliciting votes Only If**
+
+1) S Has a Higher term in the last entry then F
+2) The last term is the same but S has a longer or the same log length as F
+
+Now if S1 logs are rewritten the rewinding one by one with the leader logs will be a pain in the ass, so instead we use the term number to skip ahead to the last term when the leader and the lagging follower were similar and replace all logs from there one out to make similar to leader again
+
 ### Safety
 
 **Ensures that the state machine executes exactly the same commands in the same order.**
@@ -175,7 +202,7 @@ Suppose the randomized election timeouts lie between `Tmin` and `Tmax` then Tmin
 
 ### Log compaction
 
-To prevent the log from growing indefinitely, which can increase the time it takes for the state machine to replay a log when it restarts, Raft uses snapshotting for log compaction. A snapshot of the current application's state is written to durable storage, and all the log entries up to the point of the snapshot are deleted from the log. Each server takes its snapshots independently, and snapshots are taken when the log reaches a fixed size in bytes.
+To prevent the log from growing indefinitely, which can increase the time it takes for the state machine to replay a log when it restarts, Raft uses snapshotting for log compaction. A snapshot of the current applications state is written to durable storage, and all the log entries up to the point of the snapshot are deleted from the log. Each server takes its snapshots independently, and snapshots are taken when the log reaches a fixed size in bytes.
 
 A snapshot also contains metadata such as the last included index, which is the index of the last entry in the log being replaced by the snapshot, and the last included term. These metadata are kept because of the AppendEntries consistency check for the first log entry after the snapshot, which needs a previous log entry and term.
 
