@@ -154,6 +154,8 @@ Now if S1 logs are rewritten the rewinding one by one with the leader logs will 
 
 **Ensures that the state machine executes exactly the same commands in the same order.**
 
+This is called **Linearizability** and it implies that every operation appears to take place atomically, in some order, consistent with the real-time ordering of those operations
+
 This rule might be broken if a follower might goes down while the leader commits several log entries, then it could be elected leader and overwrite these entries with new ones, as a result different state machines might execute different command sequences.
 
 So now do we ensure safety when a leader or one of the followers crashes ?
@@ -206,7 +208,6 @@ To prevent the log from growing indefinitely, which can increase the time it tak
 
 A snapshot also contains metadata such as the last included index, which is the index of the last entry in the log being replaced by the snapshot, and the last included term. These metadata are kept because of the AppendEntries consistency check for the first log entry after the snapshot, which needs a previous log entry and term.
 
-### Questions
+### End notes & Questions
 
 RAFT can fail when a leader can send out outgoing requests i.e heartbeats but cannot accept incoming requests i.e from the client. In these case even tho leader fails to serve the client the followers get the heartbeat and assume everting is ok. A way to solve this is to also send a response from the follower to the leader heartbeat which needs to be acknowledged, this way we can catch situations where leader doesn't respond to incoming requests and re-trigger an election.
-

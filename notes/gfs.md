@@ -119,8 +119,7 @@ How the client, master, and chunkservers interact to implement data mutations, a
 
 - Mutations happens to a chunkserver and its replicas by **Leasing** a chunkserver as primary and all the other replicas as secondary this information is cached in the client to minimize masters involvement. 
 - Client then pushed the data to all the replicas which is stored in an internal LRU cache until its times out. So with this there is a **Decoupling of the data flow from the control flow** 
-- Once data is written to replicas and acknowledged the primary assigns consecutive serial
-numbers to all the mutations it receives and applies them to its own state
+- Once data is written to replicas and acknowledged the primary assigns consecutive serial numbers to all the mutations it receives and applies them to its own state
 - This is then forwarded to secondary replicas which use the same order to apply mutations
 - Primary then replies to the client, client maintains a lease using heartbeats to master and if not received a new replica is given the lease. Mutations failures mark the regions as inconsistent and is retried before returning the error to client
 
