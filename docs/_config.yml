@@ -1,11 +1,15 @@
+title: mit6.284
+description: Distribution Systems Notes and Stuff
+author: "Sangarshanan"
+
 theme: minima
 
 # Minima: show excerpts in the frontpage
 show_excerpts: true
 
-minima:
-  date_format: "%Y-%m-%d"
-
 # Minima: custom header links
 header_pages:
   - _posts/glossary.md
+
+include:
+    - _pages
