@@ -1,5 +1,5 @@
 ---
-title: "Zookeeper"
+title: "Wait-free coordination: Zookeeper"
 layout: post
 ---
 

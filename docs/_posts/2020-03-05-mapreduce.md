@@ -1,5 +1,5 @@
 ---
-title: "Mapreduce"
+title: "Simplified Data Processing on Large Clusters: Mapreduce"
 layout: post
 ---
 
