@@ -9,3 +9,4 @@ MIT Distributed systems notes and Lab assignments in Scala, I am learning scala 
 - **Video lectures**: https://www.youtube.com/channel/UC_7WrbZTCODu1o_kfUMq88g/videos
 - **Notes from an internet stranger**: https://timilearning.com/1/
 - **Martin Kleppmann Lectures**: https://www.youtube.com/playlist?list=PLeKd45zvjcDFUEv_ohr_HdUFe97RItdiB
+- **tikv** https://tikv.github.io/deep-dive-tikv/overview/introduction.html

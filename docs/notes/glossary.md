@@ -28,3 +28,5 @@ Lease is a contract that gives its holder specified rights to some resource for 
 
 [Link](https://zhu45.org/posts/2018/Mar/07/cache-lease-consistency-invalidation/)
 
+
+What is the difference between using a lease rather a cache with a randomized TTL ?

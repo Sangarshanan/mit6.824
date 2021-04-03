@@ -17,3 +17,14 @@ project/plugins/project/
 .scala_dependencies
 .worksheet
 .idea
+
+### Jekyll ###
+_site
+.sass-cache
+.jekyll-metadata
+Gemfile.lock
+vendor
+.bundle/
+_site/
+.jekyll-cache/
+
