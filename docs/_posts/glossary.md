@@ -1,4 +1,8 @@
-## Ayo Jargon Check
+---
+permalink: /glossary
+layout: page
+title: Ayo Jargon Check
+---
 
 ### Linearizability vs Serializability
 
