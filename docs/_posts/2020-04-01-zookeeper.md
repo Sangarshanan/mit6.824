@@ -122,6 +122,13 @@ As described in an earlier section, we can use ZooKeeper to implement group memb
 A process can obtain other information about the other members of its group by listing the children under zg. It can then monitor changes in group membership by setting the watch flag to true.
 
 
+### Queues
+
+Distributed queues are a common data structure. To implement a distributed queue in ZooKeeper, first designate a znode to hold the queue, the queue node. The distributed clients put something into the queue by calling create() with a pathname ending in "queue-", with the sequence and ephemeral flags in the create() call set to true. Because the sequence flag is set, the new pathnames will have the form path-to-queue-node/queue-X, where X is a monotonic increasing number. A client that wants to be removed from the queue calls ZooKeeper's getChildren( ) function, with watch set to true on the queue node, and begins processing nodes with the lowest number. The client does not need to issue another getChildren( ) until it exhausts the list obtained from the first getChildren( ) call. If there are are no children in the queue node, the reader waits for a watch notification to check the queue again
+
+To implement a **priority queue** you need only make two simple changes to the generic queue recipe . First, to add to a queue, the pathname ends with "queue-YY" where YY is the priority of the element with lower numbers representing higher priority (just like UNIX). Second, when removing from the queue, a client uses an up-to-date children list meaning that the client will invalidate previously obtained children lists if a watch notification triggers for the queue node.
+
+
 ### Simple Locks
 
 The simplest lock implementation uses **lock files**. The lock is represented by a znode. To acquire a lock,
@@ -130,214 +137,95 @@ holds the lock. Otherwise, the client can read the znode with the watch flag set
 leader dies. A client releases the lock when it dies or explicitly deletes the znode. Other clients that are waiting
 for a lock try again to acquire a lock once they observe the znode being deleted.
 
-This has two problems.
-- It suffers from the **herd effect.** If will be many clients waiting to acquire a lock even tho one client can acquire the lock. 
-- It only implements exclusive locking or **write lock.**
+This suffers from the **herd effect.** That is if there are many clients waiting to acquire a lock even tho only one client can acquire the lock. We solve this by lining up clients requesting the lock using the **SEQUENTIAL flag** and each client obtains the lock in order of request arrival and by only watching the znode that precedes the client’s znode, we avoid the herd effect by only waking up one process when a lock is released or a lock request is abandoned.
+
+**Write Lock**
+```
+1 n = create(l + “/write-”, EPHEMERAL|SEQUENTIAL)
+2 C = getChildren(l, false)
+3 if n is lowest znode in C, exit
+4 p = znode in C ordered just before n
+5 if exists(p, true) wait for event
+6 goto 2
+```
+**Read Lock**
+```
+1 n = create(l + “/read-”, EPHEMERAL|SEQUENTIAL)
+2 C = getChildren(l, false)
+3 if no write znodes lower than n in C, exit
+4 p = write znode in C ordered just before n
+5 if exists(p, true) wait for event
+6 goto 3
+```
+
+### Double Barrier
+
+Double barriers enable clients to synchronize the beginning and the end of a computation. When enough processes have joined the barrier, processes start their computation and leave the barrier once they have finished
+
+A barrier in ZooKeeper is a znode called b. **Every process p registers with b by creating a znode as a child of b – on entry, and unregisters – removes the child – when it is ready to leave.**. We use watches to efficiently wait for enter and exit conditions to be satisfied. To enter, processes watch for the existence of a ready child of b that will be created by the process that causes the number of children to exceed the barrier threshold. To leave, processes watch for a particular child to disappear and only check the exit condition once that znode has been removed.
+
+### Implementation
+
+ZooKeeper provides high availability by replicating the ZooKeeper data on each server that composes the ser-
+vice. We assume that servers fail by crashing, and such
+faulty servers may later recover. The figure below  shows the high-
+level components of the ZooKeeper service. Upon receiving a request, a server prepares it for execution (re-
+quest processor). If such a request requires coordination among the servers (write requests), then they use an
+agreement protocol (an implementation of atomic broadcast), and finally servers commit changes to the Zoo-
+Keeper database fully replicated across all servers of the ensemble. In the case of read requests, a server simply
+reads the state of the local database and generates a response to the request.
+
+![stuff](https://zookeeper.apache.org/doc/r3.5.4-beta/images/zkcomponents.jpg)
+
+**Request Processor** converts client requests to transactions which unlike client requests are idempotent. When the leader receives a write request, it calculates what the state of the system will be when the write is applied and transforms it
+into a transaction that captures this new state, eg: if a client does a conditional
+setData and the version number in the request matches
+the future version number of the znode being updated,
+the service generates a `setDataTXN` that contains the
+new data, the new version number, and updated time
+stamps. If an error occurs, such as mismatched version
+numbers or the znode to be updated does not exist, an
+`errorTXN` is generated instead.
+
+**Atomic Broadcast** is achieved using Zab which uses by default a simple majority quorums to decide on a proposal and thus ZooKeeper can only work if a majority of servers are correct (i.e., with 2f + 1 server we can
+tolerate f failures). Zab provides stronger
+order guarantees than regular atomic broadcast. More
+specifically, Zab guarantees that changes broadcast by a
+leader are delivered in the order they were sent and all
+changes from previous leaders are delivered to an established leader before it broadcasts its own changes.
+
+**Replicated Database** is an in-memory database containing the entire data tree which is used when the server recovers from a crash. We call ZooKeeper snapshots **fuzzy snapshots** since we do not lock
+the ZooKeeper state to take the snapshot; instead, we do
+a depth first scan of the tree atomically reading each znode’s data and meta-data and writing them to disk. Since
+the resulting fuzzy snapshot may have applied some subset of the state changes delivered during the generation of
+the snapshot, this can cause reapplying transactions which however will not an issue cause they be idempotent and works as long
+as we apply the state changes in order.
+
+### Conclusion
+
+ZooKeeper takes a wait-free approach to the problem of
+coordinating processes in distributed systems, by exposing wait-free objects to clients.ZooKeeper achieves throughput values of hundreds of thousands of operations per second
+for read-dominant workloads by using fast reads with
+watches, both of which served by local replicas. Although our consistency guarantees for reads and watches
+appear to be weak, we have shown with our use cases that
+this combination allows us to implement efficient and
+sophisticated coordination protocols at the client even
+though reads are not precedence-ordered and the implementation of data objects is wait-free. The wait-free
+property has proved to be essential for high performance.
 
 
-### Footer
+### Links and FAQ
+
+- [More Zookeeper Recipes](https://zookeeper.apache.org/doc/current/recipes.html#sc_recipes_eventHandles)
 
 - [Zookeeper vs etcd](https://imesha.me/apache-curator-vs-etcd3-9c1362600b26)
 
 - [On eventually consistent service discovery](https://www.envoyproxy.io/docs/envoy/latest/intro/arch_overview/upstream/service_discovery)
 
-One use of Zookeeper is as a fault-tolerant lock service. Why isn't possible for two clients to acquire the same lock? In particular, how does Zookeeper decide if a client has failed and it can give the client's locks to other clients?
-
 - [zookeeper-architecture](https://data-flair.training/blogs/zookeeper-architecture/)
 
-### FAQ
+- [MIT FAQ with answers](https://pdos.csail.mit.edu/6.824/papers/zookeeper-faq.txt)
 
-**Q: Why are only update requests A-linearizable?**
+**Q: One use of Zookeeper is as a fault-tolerant lock service. Why isn't possible for two clients to acquire the same lock? In particular, how does Zookeeper decide if a client has failed and it can give the client's locks to other clients?**
 
-A: Because the authors want reads to scale with the number of servers,
-so they want to them to execute a server without requiring any
-interaction with other servers. This comes at the cost of
-consistency: they are allowed to return stale data.
-
-**Q: How does linearizability differ from serializability?**
-
-A: Serializability is a correctness condition that is typically used for
-systems that provide transactions; that is, systems that support
-grouping multiple operations into an atomic operations.
-
-Linearizability is typically used for systems without transactions.
-When the Zookeeper paper refers to "serializable" in their definition
-of linearizability, they just mean a serial order.
-
-We talk about serializability in subsequent papers. Here is a blog
-post that explains the difference, if you are curious:
-http://www.bailis.org/blog/linearizability-versus-serializability/
-
-Although the blog post gives precise definitions, designers are not
-that precise when using those terms when they describe their
-system, so often you have to glean from the context what
-correctness condition the designers are shooting for.
-
-**Q: What is pipelining?**
-
-Zookeeper "pipelines" the operations in the client API (create,
-delete, exists, etc). What pipelining means here is that these
-operations are executed asynchronously by clients. The client calls
-create, delete, sends the operation to Zookeeper and then returns.
-At some point later, Zookeeper invokes a callback on the client that
-tells the client that the operation has been completed and what the
-results are. This asynchronous interface allow a client to pipeline
-many operations: after it issues the first, it can immediately issue a
-second one, and so on. This allows the client to achieve high
-throughput; it doesn't have to wait for each operation to complete
-before starting a second one.
-
-A worry with pipelining is that operations that are in flight might be
-re-ordered, which would cause the problem that the authors to talk
-about in 2.3. If a the leader has many write operations in flight
-followed by write to ready, you don't want those operations to be
-re-ordered, because then other clients may observe ready before the
-preceding writes have been applied. To ensure that this cannot
-happen, Zookeeper guarantees FIFO for client operations; that is the
-client operations are applied in the order they have been issued.
-
-**Q: What about Zookeeper's use case makes wait-free better than locking?**
-
-I think you mean "blocking" -- locking (as in, using locks) and blocking (as
-in, waiting for a request to return before issuing another one) are very
-different concepts.
-
-Many RPC APIs are blocking: consider, for example, clients in Lab 2/3 -- they
-only ever issue one request, patiently wait for it to either return or time out,
-and only then send the next one. This makes for an easy API to use and reason
-about, but doesn't offer great performance. For example, imagine you wanted to
-change 1,000 keys in Zookeeper -- by doing it one at a time, you'll spend most
-of your time waiting for the network to transmit requests and responses (this is
-what labs 2/3 do!). If you could instead have *several* requests in flight at
-the same time, you can amortize some of this cost. Zookeeper's wait-free API
-makes this possible, and allows for higher performance -- a key goal of the
-authors' use case.
-
-**Q: What does wait-free mean?**
-
-A: The precise definition is as follows: A wait-free implementation of
-a concurrent data object is one that guarantees that any process can
-complete any operation in a finite number of steps, regardless of the
-execution speeds of the other processes. This definition was
-introduced in the following paper by Herlihy:
-https://cs.brown.edu/~mph/Herlihy91/p124-herlihy.pdf
-
-The implementation of Zookeeper API is wait-free because requests return
-to clients without waiting for other, slow clients or servers. Specifically,
-when a write is processed, the server handling the client write returns as
-soon as it receives the state change (搂4.2). Likewise, clients' watches fire
-as a znode is modified, and the server does *not* wait for the clients to
-acknowledge that they've received the notification before returning to the
-writing client.
-
-Some of the primitives that client can implement with Zookeeper APIs are
-wait-free too (e.g., group membership), but others are not (e.g., locks,
-barrier).
-
-**Q: What is the reason for implementing 'fuzzy snapshots'? How can**
-state changes be idempotent?
-
-A: If the authors had to decided to go for consistent snapshots,
-Zookeeper would have to stop all writes will making a snapshot for
-the in-memory database. You might remember that GFS went for
-this plan, but for large database, this could hurt the performance of
-Zookeeper seriously. Instead the authors go for a fuzzy snapshot
-scheme that doesn't require blocking all writes while the snapshot is
-made. After reboot, they construct a consistent snapshot by
-replaying the messages that were sent after the checkpoint started.
-Because all updates in Zookeeper are idempotent and delivered in
-the same order, the application-state will be correct after reboot and
-replay---some messages may be applied twice (once to the state
-before recovery and once after recovery) but that is ok, because they
-are idempotent. The replay fixes the fuzzy snapshot to be a consistent
-snapshot of the application state.
-
-Zookeeper turns the operations in the client API into something that
-it calls a transaction in a way that the transaction is idempotent. For
-example, if a client issues a conditional setData and the version
-number in the request matches, Zookeeper creates a setDataTXN
-that contains the new data, the new version number, and updated
-time stamps. This transaction (TXN) is idempotent: Zookeeper can
-execute it twice and it will result in the same state.
-
-**Q: How does ZooKeeper choose leaders?**
-
-A: Zookeeper uses ZAB, an atomic broadcast system, which has leader
-election build in, much like Raft. If you are curious about the
-details, you can find a paper about ZAB here:
-http://dl.acm.org/citation.cfm?id=2056409
-
-**Q: How does Zookeeper's performance compare to other systems**
-such as Paxos?
-
-A: It has impressive performance (in particular throughput); Zookeeper
-would beat the pants of your implementation of Raft. 3 zookeeper
-server process 21,000 writes per second. Your raft with 3 servers
-commits on the order of tens of operations per second (assuming a
-magnetic disk for storage) and maybe hundreds per second with
-SSDs.
-
-**Q: How does the ordering guarantee solve the race conditions in**
-Section 2.3?
-
-If a client issues many write operations to a z-node, and then the
-write to Ready, then Zookeeper will guarantee that all the writes
-will be applied to the z-node before the write to Ready. Thus, if
-another client observes Ready, then the all preceding writes must
-have been applied and thus it is ok for other clients to read the info
-in the z-node.
-
-**Q: How big is the ZooKeeper database? It seems like the server must**
-have a lot of memory.
-
-It depends on the application, and, unfortunately, the paper doesn't
-report on it for the different application they have used Zookeeper
-with. Since Zookeeper is intended for configuration services/master
-services (and not for a general-purpose data store), however, an
-in-memory database seems reasonable. For example, you could
-imagine using Zookeeper for GFS's master and that amount of data
-should fit in the memory of a well-equipped server, as it did for GFS.
-
-**Q: What's a universal object?**
-
-A: It is a theoretical statement of how good the API of Zookeeper is
-based on a theory of concurrent objects that Herlihy introduced:
-https://cs.brown.edu/~mph/Herlihy91/p124-herlihy.pdf. We won't
-spend any time on this statement and theory, but if you care there is
-a gentle introduction on this wikipedia page:
-https://en.wikipedia.org/wiki/Non-blocking_algorithm.
-
-The reason that authors appeal to this concurrent-object theory is
-that they claim that Zookeeper provides a good coordination kernel
-that enables new primitives without changing the service. By
-pointing out that Zookeeper is an universal object in this
-concurrent-object theory, they support this claim.
-
-**Q: How does a client know when to leave a barrier (top of page 7)?**
-
-A: Leaving the barrier involves each client watching the znodes for
-all other clients participating in the barrier. Each client waits for
-all of them to be gone. If they are all gone, they leave the barrier
-and continue computing.
-
-**Q: Is it possible to add more servers into an existing ZooKeeper without taking **the service down for a period of time?
-
-It is -- although when the original paper was published, cluster
-membership was static. Nowadays, ZooKeeper supports "dynamic
-reconfiguration":
-
-https://zookeeper.apache.org/doc/r3.5.3-beta/zookeeperReconfig.html
-
-How do you think this compares to Raft's dynamic configuration change
-via overlapping consensus, which appeared two years later?
-
-**Q: How are watches implemented in the client library?**
-
-It depends on the implementation. In most cases, the client library
-probably registers a callback function that will be invoked when the
-watch triggers.
-
-For example, a Go client for ZooKeeper implements it by passing a
-channel into "GetW()" (get with watch); when the watch triggers, an
-"Event" structure is sent through the channel. The application can
-check the channel in a select clause.
+Zookeeper gives the client's locks to other clients if the client releases the lock when it dies or explicitly deletes the znode

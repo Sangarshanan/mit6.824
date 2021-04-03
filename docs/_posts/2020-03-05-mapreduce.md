@@ -3,10 +3,9 @@ title: "Simplified Data Processing on Large Clusters: Mapreduce"
 layout: post
 ---
 
-<http://nil.csail.mit.edu/6.824/2020/papers/mapreduce.pdf>
-
 In this lab you'll build a MapReduce system. You'll implement a worker process that calls application Map and Reduce functions and handles reading and writing files, and a master process that hands out tasks to workers and copes with failed workers. For the [Assignment](http://nil.csail.mit.edu/6.824/2020/labs/lab-mr.html) we will be building something similar to what is described in the [MapReduce paper](http://nil.csail.mit.edu/6.824/2020/papers/mapreduce.pdf).
 
+**Solution in Scala:** https://github.com/Sangarshanan/mit6.824/tree/master/src/main/scala/mapreduce>
 
 ### My notes
 
