@@ -35,7 +35,7 @@ receive timely notifications of changes without requiring polling.
 - **Coordination Kernel** proposes a wait-free coordination service with relaxed consistency guarantees for use in distributed systems.
 - Use **Coordination recipes** to build higher level coordination primitives, even blocking and strongly consistent primitives that are often used in distributed applications
 
-### Ayo Jargon Check
+### Terminology
 
 We use **client to denote a user of the ZooKeeper service**, server to denote a process providing the ZooKeeper service, and **znode to denote an in-memory data node** in the ZooKeeper data, which is organized in a hierarchical namespace referred to as the data tree. We also use the terms update and write to refer to any operation that modifies the state of the data tree. Clients establish a session when they connect to ZooKeeper and obtain a session handle through which they issue requests.
 
@@ -123,6 +123,17 @@ A process can obtain other information about the other members of its group by l
 
 
 ### Simple Locks
+
+The simplest lock implementation uses **lock files**. The lock is represented by a znode. To acquire a lock,
+a client tries to create the designated znode with the **EPHEMERAL flag**. If the create succeeds, the client
+holds the lock. Otherwise, the client can read the znode with the watch flag set to be notified if the current
+leader dies. A client releases the lock when it dies or explicitly deletes the znode. Other clients that are waiting
+for a lock try again to acquire a lock once they observe the znode being deleted.
+
+This has two problems.
+- It suffers from the **herd effect.** If will be many clients waiting to acquire a lock even tho one client can acquire the lock. 
+- It only implements exclusive locking or **write lock.**
+
 
 ### Footer
 
