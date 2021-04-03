@@ -1,15 +1,20 @@
-## Mapreduce
+---
+title: "Mapreduce"
+layout: post
+---
 
-http://nil.csail.mit.edu/6.824/2020/labs/lab-mr.html
+<http://nil.csail.mit.edu/6.824/2020/papers/mapreduce.pdf>
 
-In this lab you'll build a MapReduce system. You'll implement a worker process that calls application Map and Reduce functions and handles reading and writing files, and a master process that hands out tasks to workers and copes with failed workers. You'll be building something similar to the [MapReduce paper](http://nil.csail.mit.edu/6.824/2020/papers/mapreduce.pdf).
+In this lab you'll build a MapReduce system. You'll implement a worker process that calls application Map and Reduce functions and handles reading and writing files, and a master process that hands out tasks to workers and copes with failed workers. For the [Assignment](http://nil.csail.mit.edu/6.824/2020/labs/lab-mr.html) we will be building something similar to what is described in the [MapReduce paper](http://nil.csail.mit.edu/6.824/2020/papers/mapreduce.pdf).
 
 
 ### My notes
 
 MapReduce is just a framework that enables dumbos like me to write distributed applications without having to worry about the underlying distributed computing infrastructure which meant one could transparently scale out the cluster by adding nodes and enable automatic failover of both data storage and data processing subsystems with zero impact on the underlying application.
 
-It's a very simple idea really, You essentially just split your data, process them in chunks and then in the end you combine the results obtained from these chunks. In the process, you end up with the parallelization of your workload. This happens in two or sometimes three steps
+It's a very simple idea really, You essentially just split your data, process them in chunks and then in the end you combine the results obtained from these chunks. In the process, you end up with the parallelization
+
+ of your workload. This happens in two or sometimes three steps
 
 1. **Map:** extract information on each split i.e each worker node applies the `map` function to the local data and writes the output to temporary storage. A master node ensures that only one copy of the redundant input data is processed.
 2. **Shuffle:** Bring the partitions to the same reducer i.e worker nodes redistribute data based on the output keys (produced by the `map` function), such that all data belonging to one key is located on the same worker node.

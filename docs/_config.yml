@@ -8,6 +8,11 @@ show_excerpts: true
 minima:
   date_format: "%b %-d, %Y"
 
+  # generate social links in footer
+  social_links:
+    twitter: sangarshanan
+    github:  sangarshanan
+
 # Minima: custom header links
 header_pages:
   - _posts/glossary.md
