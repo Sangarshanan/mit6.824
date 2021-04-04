@@ -8,7 +8,16 @@ layout: post
 
 ZooKeeper is a service for coordinating processes of distributed applications, it is built for maintaining configuration information, naming, providing distributed synchronization, and providing group services.
 
-Compared with [Chubby](https://static.googleusercontent.com/media/research.google.com/en//archive/chubby-osdi06.pdf) in a lot of places, chubby is a lock service for loosely-coupled distributed systems built by Google
+### Linearizability and Guarantees
+
+In distributed systems like RAFT master handles all the traffic and scaling up the number of servers won't really scale up the performance since leader is the bottleneck and leader has more replicas to handle and while this bottlneck is needed to keep things to be linearizable Zookeeper prefers higher read performance and hence lets you query from the replicas that are not master directly by sacrificing linearity which means you could read stale data. **But Writes are linearizable**
+
+This does not mean ZK has no guarantees at all, it provides a FIFO execution order at the client level which means for a every client reads and writes are executed in the same order they are sent and the current read will see the previous write BUT if the previous write is from a different client then zookeeper cannot guarantee the current read is the latest
+
+
+### Introduction
+
+ZK is compared to [Chubby](https://static.googleusercontent.com/media/research.google.com/en//archive/chubby-osdi06.pdf) in a lot of places, chubby is a lock service for loosely-coupled distributed systems built by Google
 
 **Group membership, Configuration and leader elections** are common forms of coordination in distributed systems, we also want our processes to know which other processes are alive and what those processes are in charge of.
 
@@ -23,7 +32,6 @@ Zookeeper has the following properties
 Guaranteeing FIFO client order enables clients to submit operations asynchronously and when this happens we also have to make sure they are Linearizable which has a performance cost
 
 ![stuff](https://dl.acm.org/cms/attachment/286aad7d-9771-4848-9f01-040caeca59c7/ins03.gif)
-
 
 For this we implement a **leader-based atomic broadcast protocol called ZAB (Zookeeper Atomic Broadcast)** which is a consensus protocol similar to Raft or Paxos. [More Info](https://distributedalgorithm.wordpress.com/2015/06/20/architecture-of-zab-zookeeper-atomic-broadcast-protocol/)
 
@@ -98,6 +106,8 @@ With leader managing processes and configuration has two important requirements
 With ZooKeeper, the new leader can designate a path as the ready znode and other processes will only use the configuration when that znode exists. The new leader makes the configuration change by deleting ready, updating the various configuration znodes, and creating ready. All of these changes can be pipelined and issued asynchronously to quickly update the configuration state.
 
 Because of the ordering guarantees, if a process sees the ready znode, it must also see all the configuration changes made by the new leader. If the new leader dies before the ready znode is created then the other processes know that the configuration has not been finalized and do not use it.
+
+What is C1 saw **Ready** starts sending out reads and a few seconds later C2 sets the flag to **not ready** for updating the configuration, Now this is why we use **watches** which sends you a timely notification when this goes down
 
 Zookeeper can be used to implement powerful primitives without knowing about them by clients using the ZooKeeper client API. Some common primitives such as group membership and configuration management are also wait-free. For others, such as rendezvous, clients need to wait for an event. Even though ZooKeeper is wait-free, we can implement efficient blocking primitives with ZooKeeper. ZooKeeper’s ordering guarantees allow efficient reasoning about system state, and watches allow for efficient waiting.
 

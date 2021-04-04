@@ -12,6 +12,8 @@ Linearizability can be viewed as a special case of strict serializability where 
 
 **Serializability is a guarantee about transactions whereas Linearizability is the ability to re-arrange those transactions in a sequential fashion**
 
+All this means that a distributed system with multiple replicas will act and behave like a single system which is great and is also kinda what we mean by **strong consistency** so a system that is Linearizable will be consistent
+
 [Link](https://accelazh.github.io/storage/Linearizability-Vs-Serializability-And-Distributed-Transactions-Copy)
 
 
@@ -32,5 +34,4 @@ Lease is a contract that gives its holder specified rights to some resource for 
 
 [Link](https://zhu45.org/posts/2018/Mar/07/cache-lease-consistency-invalidation/)
 
-
-What is the difference between using a lease rather a cache with a randomized TTL ?
+when a client starts a session, the master server issues a session lease to the client, guaranteeing that it won't terminate the session before the lease expires. The server only extends the lease when it receives a KeepAlive RPC from the client. In addition to sending the new lease, the server also uses the KeepAlive reply to transmit cache invalidation. If a faulty client doesn't acknowledge, the server will not issue a new lease and terminate the session with that client. Sometimes replicas also issue a master lease to implement its leader election protocol that's different from the session lease that the master issues to the client.
