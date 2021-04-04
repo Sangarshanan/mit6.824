@@ -16,5 +16,6 @@ minima:
 # Minima: custom header links
 header_pages:
   - glossary.md
+  - about.md
 
 theme: minima
